@@ -1,0 +1,9 @@
+node_modules/
+.store/
+.tmp/
+dist/
+out/
+*.log
+.env
+.env.*
+!.env.example

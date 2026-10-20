@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentation — Cloud Block Vault</title>
+  <meta name="description" content="Architecture, operations, security model, and S3 + CloudFront deployment guide for the Cloud Block Vault mini project." />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="index.html"><span class="brand-mark"></span> Cloud Block Vault</a>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="docs.html" class="active">Documentation</a>
+      <a href="#deploy">Deploy</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <span class="tag">Documentation</span>
+      <h1>How Cloud Block Vault works</h1>
+      <p class="lede">
+        From segmentation to edge delivery: the architecture, every operation, the
+        cryptographic design, and how to host this site on Amazon S3 behind
+        CloudFront with HTTPS.
+      </p>
+    </section>
+
+    <h2 id="architecture">Architecture</h2>
+    <p>
+      A file never leaves the machine whole. It is streamed into fixed-size
+      segments, each segment is encrypted independently, and the resulting
+      ciphertext blocks plus a small JSON <strong>manifest</strong> are written to
+      object storage. The manifest is written <em>last</em>, so its presence marks a
+      completed upload.
+    </p>
+    <div class="diagram">
+      <svg viewBox="0 0 900 220" width="100%" height="220" role="img" aria-label="Pipeline: file, split into blocks, encrypt, upload to S3, CloudFront, download, decrypt, reassemble">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b8cff"></path>
+          </marker>
+        </defs>
+        <g font-family="Segoe UI, sans-serif" font-size="13" fill="#e7ecff">
+          <rect x="10" y="80" width="110" height="56" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="65" y="104" text-anchor="middle">file</text>
+          <text x="65" y="122" text-anchor="middle" fill="#9aa7d0" font-size="11">split</text>
+
+          <rect x="160" y="30" width="110" height="42" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="215" y="55" text-anchor="middle">block 0</text>
+          <rect x="160" y="88" width="110" height="42" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="215" y="113" text-anchor="middle">block 1</text>
+          <rect x="160" y="146" width="110" height="42" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="215" y="171" text-anchor="middle">block n</text>
+
+          <rect x="320" y="80" width="120" height="56" rx="10" fill="#151d3b" stroke="#38d9a9"></rect>
+          <text x="380" y="104" text-anchor="middle">AES-256-GCM</text>
+          <text x="380" y="122" text-anchor="middle" fill="#9aa7d0" font-size="11">scrypt key</text>
+
+          <rect x="490" y="66" width="150" height="84" rx="12" fill="#151d3b" stroke="#5b8cff"></rect>
+          <text x="565" y="94" text-anchor="middle">Amazon S3</text>
+          <text x="565" y="114" text-anchor="middle" fill="#9aa7d0" font-size="11">blocks/*.blk</text>
+          <text x="565" y="130" text-anchor="middle" fill="#9aa7d0" font-size="11">manifest.json</text>
+
+          <rect x="690" y="30" width="120" height="42" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="750" y="55" text-anchor="middle">CloudFront</text>
+          <rect x="690" y="146" width="150" height="46" rx="10" fill="#151d3b" stroke="#26315c"></rect>
+          <text x="765" y="174" text-anchor="middle">decrypt → reassemble</text>
+
+          <line x1="120" y1="108" x2="152" y2="108" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="270" y1="51" x2="312" y2="92" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="270" y1="109" x2="312" y2="109" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="270" y1="167" x2="312" y2="126" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="440" y1="108" x2="482" y2="108" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="640" y1="80" x2="686" y2="56" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></line>
+          <path d="M 640 120 C 670 140, 660 169, 684 170" fill="none" stroke="#5b8cff" stroke-width="2" marker-end="url(#arrow)"></path>
+        </g>
+      </svg>
+    </div>
+
+    <h2 id="operations">Operations</h2>
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>split &lt;file&gt;</code></td><td>Divides a file into fixed-size segments in a local folder (<code>blocks/000000.blk</code>, …) plus <code>segments.json</code> with per-block checksums.</td></tr>
+        <tr><td><code>merge &lt;segDir&gt;</code></td><td>Reassembles segments and verifies size + SHA-256 against the metadata.</td></tr>
+        <tr><td><code>upload &lt;file&gt;</code></td><td>Split → encrypt each block → upload blocks and manifest to the store (<code>local</code> or <code>s3</code>).</td></tr>
+        <tr><td><code>download &lt;id&gt;</code></td><td>Fetch manifest + blocks, verify checksums, decrypt, reassemble, and verify the final SHA-256.</td></tr>
+        <tr><td><code>download &lt;id&gt; --keep-encrypted</code></td><td>Downloads the ciphertext exactly as stored in the cloud (blocks + manifest) without decrypting.</td></tr>
+        <tr><td><code>restore &lt;encDir&gt;</code></td><td>Decrypts a vault that was downloaded in encrypted form, back into the original file.</td></tr>
+        <tr><td><code>list</code> / <code>verify</code></td><td>List vaults in the store; verify stored checksums (and GCM authentication when a passphrase is given).</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="storage">Storage backends</h2>
+    <p>
+      The storage layer is a tiny abstraction — <code>putObject</code>,
+      <code>getObject</code>, <code>listObjects</code>, <code>deleteObject</code> —
+      with two implementations:
+    </p>
+    <ul>
+      <li><strong>local</strong> (default): the same semantics on the filesystem under <code>.store/</code>, so the entire workflow runs offline and in tests.</li>
+      <li><strong>s3</strong>: the S3 REST API signed with <strong>AWS Signature Version 4</strong> implemented from the specification (no SDK). Works with AWS S3 and S3-compatible endpoints (MinIO, Ceph, R2) via <code>--endpoint</code>.</li>
+    </ul>
+    <div class="note">
+      <strong>Verified against AWS's own example.</strong> The signing code reproduces the
+      exact signature published in the
+      <a href="https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sig-v4-header-based-auth.html">AWS S3 SigV4 documentation</a>
+      worked example (<code>f0e8bdb8…36bdb41</code>), which is asserted in the test suite.
+    </div>
+    <pre><code>export CBV_BUCKET=my-vault-bucket
+export CBV_REGION=us-east-1
+export CBV_PREFIX=demo            # optional key prefix inside the bucket
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export CBV_PASSPHRASE=...
+node src/cli.js upload bigfile.bin --backend s3
+node src/cli.js list --backend s3
+node src/cli.js download bigfile.bin-20261020T120000 -o restored.bin --backend s3</code></pre>
+
+    <h2 id="security">Security model</h2>
+    <ul>
+      <li><strong>Key derivation</strong> — the passphrase is never used directly; scrypt (N=16384, r=8, p=1) with a random 16-byte salt from the manifest derives a 256-bit key.</li>
+      <li><strong>Per-block AES-256-GCM</strong> — every block uses a fresh 12-byte random nonce; the 16-byte auth tag detects any modification of the ciphertext.</li>
+      <li><strong>Block binding (AAD)</strong> — the vault id and block index are fed into GCM as additional authenticated data, so blocks cannot be reordered, duplicated, or replayed from another vault.</li>
+      <li><strong>Checksums</strong> — the manifest stores a SHA-256 per stored block and for the whole plaintext file, catching corruption before decryption and after reassembly.</li>
+      <li><strong>Secrets hygiene</strong> — the passphrase and AWS keys come from flags/environment, never from the manifest; the manifest and salt are public by design.</li>
+    </ul>
+
+    <h2 id="deploy">Hosting the site: S3 + CloudFront + HTTPS</h2>
+    <p>
+      This site is static HTML/CSS, which is exactly what object storage + a CDN
+      are for. <code>infra/deploy-site.sh</code> provisions the whole path:
+    </p>
+    <ol>
+      <li>Create a private S3 bucket and <strong>block all public access</strong>.</li>
+      <li>Sync the <code>site/</code> folder into the bucket.</li>
+      <li>Create a CloudFront distribution with <strong>Origin Access Control (OAC)</strong>, so users can only reach the files through the CDN.</li>
+      <li>Attach a bucket policy that allows only that distribution to read objects.</li>
+      <li>Force <strong>HTTP → HTTPS redirection</strong> and set <code>index.html</code> as the default root object.</li>
+    </ol>
+    <pre><code>export AWS_REGION=us-east-1
+export SITE_BUCKET=my-portfolio-site-12345   # globally unique
+./infra/deploy-site.sh                       # prints the https://dxxxx.cloudfront.net URL</code></pre>
+
+    <h3 class="sub">Why a CDN?</h3>
+    <ul>
+      <li><strong>Latency</strong> — CloudFront caches content at edge locations close to visitors; a fetch that would cross the ocean once is now served from the nearest region.</li>
+      <li><strong>HTTPS everywhere</strong> — CloudFront terminates TLS with a default certificate for its domain (or your own via ACM/IAM), and the distribution can redirect plain-HTTP requests, so encryption in transit is enforced end to end.</li>
+      <li><strong>Origin protection</strong> — with OAC the S3 bucket stays fully private; only the CDN can read it.</li>
+      <li><strong>Invalidation</strong> — after re-uploading files, <code>aws cloudfront create-invalidation</code> (see <code>infra/invalidate.sh</code>) pushes fresh content to every edge.</li>
+    </ul>
+
+    <h2 id="layout">Project layout</h2>
+    <pre><code>src/
+  cli.js            CLI: split, merge, upload, download, restore, list, verify, serve-site
+  blockify.js       segmentation (streamed split + verified merge)
+  cipher.js         AES-256-GCM + scrypt key derivation
+  manifest.js       manifest schema (blocks, checksums, KDF salt)
+  vault.js          upload / download / restore / verify operations
+  sigv4.js          AWS Signature Version 4 signer
+  storage/          local (S3-like) and s3 (REST + SigV4) backends
+  site-server.js    tiny static file server for local preview
+test/               node:test suites (19 tests, no dependencies)
+site/               this documentation / portfolio site
+infra/              S3 + CloudFront deployment scripts</code></pre>
+    <p class="muted">Run the test suite with <code>npm test</code>. Preview the site locally with <code>npm run serve-site</code>.</p>
+  </main>
+
+  <footer>
+    Cloud Block Vault — Cloud Computing mini project · Node.js, zero dependencies ·
+    <a href="index.html">Home</a>
+  </footer>
+</body>
+</html>

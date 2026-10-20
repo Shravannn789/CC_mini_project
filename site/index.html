@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cloud Block Vault — encrypted block storage mini project</title>
+  <meta name="description" content="Split files into blocks, encrypt them with AES-256-GCM, and upload/download them from object storage. A cloud computing mini project on S3, CloudFront and HTTPS." />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="index.html"><span class="brand-mark"></span> Cloud Block Vault</a>
+    <nav>
+      <a href="index.html" class="active">Home</a>
+      <a href="docs.html">Documentation</a>
+      <a href="docs.html#deploy">Deploy</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <span class="tag">Cloud Computing Mini Project</span>
+      <h1>Split. Encrypt. Store.<br />Download from the cloud — safely.</h1>
+      <p class="lede">
+        Cloud Block Vault is a dependency-free Node.js tool that divides any file into
+        fixed-size <strong>segments/blocks</strong>, encrypts every block with
+        <strong>AES-256-GCM</strong> using a key derived from your passphrase (scrypt),
+        and uploads them to object storage — <strong>Amazon S3</strong> or a local store
+        that mimics S3 semantics. Downloads pull the blocks back in encrypted form,
+        authenticate them, decrypt and reassemble the original file byte-for-byte.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="docs.html">Read the docs</a>
+        <a class="btn ghost" href="docs.html#quickstart">Quickstart</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>What it does</h2>
+      <div class="grid">
+        <div class="card">
+          <span class="kicker">Segmentation</span>
+          <h3>Split files into blocks</h3>
+          <p>Stream any file into fixed-size segments (default 4&nbsp;MiB) with a per-block SHA-256 checksum — no matter how large the file is.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">Encryption</span>
+          <h3>AES-256-GCM per block</h3>
+          <p>Each block gets a fresh random nonce and is authenticated with GCM. The key is derived from your passphrase with scrypt; blocks are bound to their vault and index.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">Object storage</span>
+          <h3>S3 without the SDK</h3>
+          <p>Talks to the S3 REST API directly with Signature Version 4 signing implemented from the spec — verified against AWS's own published test vector.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">Round trip</span>
+          <h3>Download encrypted, restore later</h3>
+          <p>Pull ciphertext exactly as stored in the cloud (<code>--keep-encrypted</code>), then decrypt it offline with <code>restore</code> once you have the passphrase.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">Integrity</span>
+          <h3>Verify end to end</h3>
+          <p>Every block is checksummed in the manifest; GCM authentication catches tampering, and the reassembled file is verified against the original SHA-256.</p>
+        </div>
+        <div class="card">
+          <span class="kicker">Delivery</span>
+          <h3>S3 + CloudFront site</h3>
+          <p>Ships with a deploy script that publishes this site to a private S3 bucket behind CloudFront with HTTPS redirect and Origin Access Control.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Quickstart</h2>
+      <pre><code># split a file into segments locally
+node src/cli.js split video.mp4 --block-size 4m
+
+# encrypt + upload (local store stands in for S3 by default)
+export CBV_PASSPHRASE="your-strong-passphrase"
+node src/cli.js upload video.mp4 --id video
+
+# use real Amazon S3 instead
+export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...
+node src/cli.js upload video.mp4 --backend s3 --bucket my-vault-bucket --region us-east-1
+
+# download it back in encrypted form, then decrypt offline
+node src/cli.js download video --keep-encrypted -o video.enc --backend s3 --bucket my-vault-bucket
+node src/cli.js restore video.enc -o video-restored.mp4</code></pre>
+      <p class="muted">Full command reference, architecture and the security model are in the <a href="docs.html">documentation</a>.</p>
+    </section>
+
+    <section>
+      <h2>Concepts this project explores</h2>
+      <table>
+        <thead><tr><th>Topic</th><th>Where it shows up</th></tr></thead>
+        <tbody>
+          <tr><td>Chunked / segmented upload</td><td><code>split</code>, <code>upload</code> — parallel-friendly fixed-size blocks with a manifest</td></tr>
+          <tr><td>Encryption at rest &amp; in transit</td><td>AES-256-GCM blocks, scrypt KDF, HTTPS everywhere via CloudFront</td></tr>
+          <tr><td>Object storage APIs</td><td>S3 REST + SigV4, ListObjectsV2, manifests as JSON objects</td></tr>
+          <tr><td>CDN &amp; edge caching</td><td>CloudFront distribution, cache invalidation, HTTP→HTTPS redirect</td></tr>
+          <tr><td>Integrity &amp; authenticity</td><td>SHA-256 checksums, GCM auth tags, AAD binding per block</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    Cloud Block Vault — Cloud Computing mini project · Node.js, zero dependencies ·
+    <a href="docs.html">Documentation</a>
+  </footer>
+</body>
+</html>

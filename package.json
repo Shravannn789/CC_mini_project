@@ -1,0 +1,20 @@
+{
+  "name": "cloud-block-vault",
+  "version": "1.0.0",
+  "description": "Mini project: split files into blocks, encrypt them with AES-256-GCM, upload to object storage (local or Amazon S3), and download them back — plus a static docs site deployable to S3 + CloudFront.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "split": "node src/cli.js split",
+    "merge": "node src/cli.js merge",
+    "upload": "node src/cli.js upload",
+    "download": "node src/cli.js download",
+    "list": "node src/cli.js list",
+    "verify": "node src/cli.js verify",
+    "serve-site": "node src/cli.js serve-site",
+    "test": "node --test"
+  }
+}
